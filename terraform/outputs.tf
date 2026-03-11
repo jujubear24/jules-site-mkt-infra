@@ -2,10 +2,10 @@
 # Outputs populated as resources are provisioned in subsequent commits.
 # ──────────────────────────────────────────────────────────────────────
 
-# output "resource_group_name" {
-#   description = "Name of the resource group"
-#   value       = azurerm_resource_group.main.name
-# }
+output "resource_group_name" {
+  description = "Name of the resource group"
+  value       = azurerm_resource_group.main.name
+}
 
 # output "acr_login_server" {
 #   description = "Login server URL for the Container Registry"

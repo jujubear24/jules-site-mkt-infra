@@ -7,10 +7,10 @@ output "resource_group_name" {
   value       = azurerm_resource_group.main.name
 }
 
-# output "acr_login_server" {
-#   description = "Login server URL for the Container Registry"
-#   value       = azurerm_container_registry.main.login_server
-# }
+output "acr_login_server" {
+  description = "Login server URL for the Container Registry"
+  value       = azurerm_container_registry.main.login_server
+}
 
 # output "front_door_endpoint" {
 #   description = "Front Door endpoint hostname (public URL)"

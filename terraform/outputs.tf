@@ -12,10 +12,10 @@ output "acr_login_server" {
   value       = azurerm_container_registry.main.login_server
 }
 
-# output "front_door_endpoint" {
-#   description = "Front Door endpoint hostname (public URL)"
-#   value       = azurerm_cdn_frontdoor_endpoint.main.host_name
-# }
+output "front_door_endpoint" {
+  description = "Front Door endpoint hostname (public URL)"
+  value       = azurerm_cdn_frontdoor_endpoint.main.host_name
+}
 
 output "site_fqdn" {
   description = "FQDN of the Marketing Site container app"

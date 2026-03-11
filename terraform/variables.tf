@@ -70,11 +70,13 @@ variable "acr_sku" {
 variable "site_image" {
   description = "Full image reference for the Marketing Site container"
   type        = string
+  default     = "mcr.microsoft.com/k8se/quickstart:latest"
 }
 
 variable "api_image" {
   description = "Full image reference for the Marketing API container"
   type        = string
+  default     = "mcr.microsoft.com/k8se/quickstart:latest"
 }
 
 variable "site_min_replicas" {

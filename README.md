@@ -94,7 +94,9 @@ flowchart TB
 
 **Decision:** Implement Azure Front Door (AFD) with a Web Application Firewall (WAF) as the global entry point.
 
-**Justification:** Exposing compute directly to the internet is an anti-pattern for production enterprise applications. AFD caches static assets at the edge, reducing origin load, while the WAF protects against OWASP Top 10 threats. The Marketing Site Container App is configured to reject any traffic that does not originate from our specific Front Door instance.
+**Justification:** Exposing compute directly to the internet is an anti-pattern for production enterprise applications. AFD caches static assets at the edge, reducing origin load, while the WAF protects against OWASP Top 10 threats.
+
+**Note on origin locking:** In a production hardening pass, the Marketing Site Container App should be configured to validate the `X-Azure-FDID` header to reject traffic that does not originate from our specific Front Door instance. ACA supports ingress IP restrictions via the `AzureFrontDoor.Backend` service tag as an additional layer of defense.
 
 ### ADR-2: Compute Platform — Azure Container Apps (ACA)
 
@@ -108,11 +110,11 @@ flowchart TB
 
 ### ADR-3: Network Security — Private Endpoints
 
-**Context:** The SQL database contains sensitive data.
+**Context:** The SQL database is described as containing sensitive data.
 
 **Decision:** Deploy Azure Private Endpoints for both Azure SQL Database and Azure Cache for Redis.
 
-**Justification:** We disable all public network access to the database and cache. By using Private Endpoints, traffic between the Container Apps and the data layer travels exclusively over the Microsoft backbone network via the Virtual Network.
+**Justification:** We disable all public network access to the database and cache. By using Private Endpoints, traffic between the Container Apps and the data layer travels exclusively over the Microsoft backbone network via the Virtual Network. Private DNS zones (`privatelink.database.windows.net` and `privatelink.redis.cache.windows.net`) are linked to the VNet so that the container apps resolve FQDNs to private IPs rather than blocked public endpoints.
 
 ### ADR-4: Data Layer — Azure SQL Serverless
 
@@ -128,7 +130,7 @@ flowchart TB
 
 **Decision:** Store connection strings in Azure Key Vault and access them via User-Assigned Managed Identities.
 
-**Justification:** No secrets are stored in Terraform state, Dockerfiles, or environment variables. The Container Apps assume the Managed Identity at runtime to securely fetch secrets, adhering to the principle of least privilege.
+**Justification:** No secrets are stored in Terraform state, Dockerfiles, or environment variables. The Container Apps assume the Managed Identity at runtime to securely fetch secrets from Key Vault, adhering to the principle of least privilege. Using a User-Assigned (rather than System-Assigned) identity ensures the identity and its role assignments exist before the Container Apps, avoiding circular dependencies in the Terraform dependency graph.
 
 ## Deployment Instructions
 
@@ -148,7 +150,17 @@ az login
 az account set --subscription "YOUR_SUBSCRIPTION_ID"
 ```
 
-### 2. Provision Infrastructure
+### 2. Configure Variables
+
+Edit `terraform/terraform.tfvars` and set your subscription ID:
+
+```hcl
+subscription_id = "your-azure-subscription-id"
+```
+
+### 3. Provision Infrastructure
+
+The initial apply uses a placeholder container image to provision all infrastructure before the real images exist in ACR.
 
 ```bash
 cd terraform
@@ -157,29 +169,24 @@ terraform plan -var="sql_admin_password=YOUR_SECURE_PASSWORD"
 terraform apply -var="sql_admin_password=YOUR_SECURE_PASSWORD"
 ```
 
-### 3. Build and Push Container Images
+### 4. Build and Push Container Images
 
-From the root of the [site-mkt](https://github.com/RXNT/site-mkt) application repository:
+From the root of your local `site-mkt` repository, build both images directly in ACR — no local Docker daemon is required.
 
 ```bash
-ACR_NAME=$(cd ../jules-site-mkt-infra/terraform && terraform output -raw acr_login_server | cut -d. -f1)
+ACR_NAME="<acr_login_server from step 3 output, e.g. acrmktprod>"
 
-az acr build \
-  --registry $ACR_NAME \
-  --image marketing-site:latest \
-  --file Dockerfile.site .
-
-az acr build \
-  --registry $ACR_NAME \
-  --image marketing-api:latest \
-  --file Dockerfile.api .
+az acr build --registry $ACR_NAME --image marketing-site:latest --file Dockerfile.site .
+az acr build --registry $ACR_NAME --image marketing-api:latest --file Dockerfile.api .
 ```
 
-### 4. Update Container Images and Re-apply
+> You can retrieve the ACR name at any time by running `terraform output -raw acr_login_server` from the `terraform/` directory.
+
+### 5. Deploy Application Images
+
+Back in the `terraform/` directory of this repository, re-apply with the real image references:
 
 ```bash
-cd ../jules-site-mkt-infra/terraform
-
 ACR_SERVER=$(terraform output -raw acr_login_server)
 
 terraform apply \
@@ -188,30 +195,53 @@ terraform apply \
   -var="api_image=${ACR_SERVER}/marketing-api:latest"
 ```
 
-### 5. Verify
+### 6. Verify
 
 ```bash
 echo "Front Door URL: https://$(terraform output -raw front_door_endpoint)"
 ```
 
-## State Management Note
+The site may take 1–2 minutes to become fully available while Front Door provisions the endpoint and the container apps start.
 
-For the purpose of this POC and easy local evaluation, the Terraform state is configured to run locally. However, for a production environment, state must be centralized, locked, and versioned. The `providers.tf` file includes a commented-out `backend "azurerm"` block demonstrating how this configuration seamlessly transitions to an Azure Storage Account with state locking.
+### 7. Teardown
+
+```bash
+terraform destroy -var="sql_admin_password=YOUR_SECURE_PASSWORD"
+```
+
+## Cost Considerations
+
+The architecture is designed to minimize cost during the POC while maintaining production-grade patterns:
+
+| Resource | Cost Strategy |
+|---|---|
+| **Azure SQL Serverless** | Auto-pauses after 60 min idle; scales from 0.5–2 vCores on demand |
+| **Container Apps** | Scale-to-zero (min replicas = 0) during off-hours; KEDA scales based on actual load |
+| **Azure Cache for Redis** | Basic/C0 tier — smallest footprint for POC validation |
+| **Container Registry** | Basic SKU — sufficient for image storage without geo-replication |
+| **Front Door** | Standard tier — WAF + CDN without Premium overhead |
+| **Key Vault** | Standard SKU — minimal per-operation cost |
+
+For a production graduation, consider upgrading Redis to Standard (SLA-backed replication), ACR to Standard (higher throughput), and Front Door to Premium (Private Link origins).
+
+## State Management
+
+For the purpose of this POC and easy local evaluation, the Terraform state is configured to run locally. For a production environment, state must be centralized, locked, and versioned. The `providers.tf` file includes a commented-out `backend "azurerm"` block demonstrating how this configuration seamlessly transitions to an Azure Storage Account with state locking.
 
 ## Terraform File Reference
 
 | File | Purpose |
 | --- | --- |
 | `providers.tf` | AzureRM provider, version constraints, backend config |
-| `main.tf` | Resource group, common tags |
-| `network.tf` | VNet, subnets, NSGs |
-| `identity.tf` | User-Assigned Managed Identity, role assignments |
-| `keyvault.tf` | Key Vault, secrets |
-| `acr.tf` | Container Registry |
-| `database.tf` | SQL Server, Serverless DB, Private Endpoint |
-| `redis.tf` | Azure Cache for Redis, Private Endpoint |
+| `main.tf` | Resource group, naming convention, common tags |
+| `network.tf` | VNet, subnets (ACA + PE), NSGs |
+| `identity.tf` | User-Assigned Managed Identity |
+| `keyvault.tf` | Key Vault, RBAC role assignments |
+| `acr.tf` | Container Registry, AcrPull role assignment |
+| `database.tf` | SQL Server, Serverless DB, Private Endpoint, KV secret |
+| `redis.tf` | Azure Cache for Redis, Private Endpoint, KV secret |
 | `dns.tf` | Private DNS zones, VNet links |
-| `container_apps.tf` | ACA environment, Site app, API app |
-| `frontdoor.tf` | Front Door profile, WAF policy, routing |
-| `variables.tf` | Input variables |
-| `outputs.tf` | Key output values |
+| `container_apps.tf` | ACA environment, Log Analytics, Site + API apps |
+| `frontdoor.tf` | Front Door profile, WAF policy, routing rules |
+| `variables.tf` | Input variables with defaults |
+| `outputs.tf` | Resource group, ACR, Front Door, Site/API FQDNs |

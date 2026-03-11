@@ -17,12 +17,12 @@ output "acr_login_server" {
 #   value       = azurerm_cdn_frontdoor_endpoint.main.host_name
 # }
 
-# output "site_fqdn" {
-#   description = "FQDN of the Marketing Site container app"
-#   value       = azurerm_container_app.site.ingress[0].fqdn
-# }
+output "site_fqdn" {
+  description = "FQDN of the Marketing Site container app"
+  value       = azurerm_container_app.site.ingress[0].fqdn
+}
 
-# output "api_fqdn" {
-#   description = "FQDN of the Marketing API container app (internal)"
-#   value       = azurerm_container_app.api.ingress[0].fqdn
-# }
+output "api_fqdn" {
+  description = "FQDN of the Marketing API container app (internal)"
+  value       = azurerm_container_app.api.ingress[0].fqdn
+}

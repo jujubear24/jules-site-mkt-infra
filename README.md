@@ -143,7 +143,7 @@ flowchart TB
 ### 1. Clone and Authenticate
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/jules-site-mkt-infra.git
+git clone https://github.com/jujubear24/jules-site-mkt-infra.git
 cd jules-site-mkt-infra
 
 az login

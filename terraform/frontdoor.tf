@@ -9,7 +9,7 @@
 resource "azurerm_cdn_frontdoor_profile" "main" {
   name                = "afd-${local.name_prefix}"
   resource_group_name = azurerm_resource_group.main.name
-  sku_name            = "Standard_AzureFrontDoor"
+  sku_name            = "Premium_AzureFrontDoor"
   tags                = local.common_tags
 }
 
@@ -81,7 +81,7 @@ resource "azurerm_cdn_frontdoor_route" "site" {
   cdn_frontdoor_origin_group_id = azurerm_cdn_frontdoor_origin_group.site.id
   cdn_frontdoor_origin_ids      = [azurerm_cdn_frontdoor_origin.site.id]
 
-  supported_protocols    = ["Https"]
+  supported_protocols    = ["Http", "Https"]
   https_redirect_enabled = true
   patterns_to_match      = ["/*"]
   forwarding_protocol    = "HttpsOnly"
@@ -107,7 +107,7 @@ resource "azurerm_cdn_frontdoor_firewall_policy" "main" {
 
   managed_rule {
     type    = "DefaultRuleSet"
-    version = "2.1"
+    version = "1.0"
     action  = "Block"
   }
 }
